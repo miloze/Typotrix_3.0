@@ -19,7 +19,7 @@ cat > ~/.config/autostart/typotrix.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
 Name=Typotrix
-Exec=bash -c "sleep 5 && chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --allow-file-access-from-files --remote-debugging-port=9222 file:///home/milo/typotrix3.html"
+Exec=bash -c "sleep 5 && chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --allow-file-access-from-files --remote-debugging-port=9222 --user-data-dir=/tmp/typotrix file:///home/milo/typotrix3.html"
 Hidden=false
 X-GNOME-Autostart-enabled=true
 EOF
