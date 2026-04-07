@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Typotrix 3</title>
+  <style>
+    /* ═══════════════════════════════════════════════════════════
+       Design tokens — change these to restyle everything
+       ═══════════════════════════════════════════════════════════ */
+    :root {
+      --bg:       #000000;
+      --fg:       #ffffff;
+      --label-fg: #666666;
+      --grid-gap: 0px;
+      --label-h:  28px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+      transition: background 0.35s ease;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: var(--grid-gap);
+      width: 100vw;
+      height: calc(100vh - var(--label-h));
+    }
+
+    .cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    @keyframes breathe {
+      0%, 100% { font-variation-settings: 'wght' 100; }
+      50%       { font-variation-settings: 'wght' 900; }
+    }
+
+    .letter {
+      display: block;
+      color: var(--fg);
+      line-height: 1;
+      white-space: nowrap;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.18s ease, transform 0.18s ease, color 0.35s ease;
+      user-select: none;
+    }
+
+    .letter.visible {
+      opacity: 1;
+      transform: translateY(0);
+      animation: breathe 2s ease-in-out infinite;
+    }
+
+    #label {
+      height: var(--label-h);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--label-fg);
+      transition: color 0.35s ease;
+      user-select: none;
+    }
+
+    #measure {
+      position: absolute;
+      top: -9999px;
+      left: -9999px;
+      visibility: hidden;
+      white-space: nowrap;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+
+<div id="grid">
+  <div class="cell"><span class="letter" id="l0"></span></div>
+  <div class="cell"><span class="letter" id="l1"></span></div>
+  <div class="cell"><span class="letter" id="l2"></span></div>
+  <div class="cell"><span class="letter" id="l3"></span></div>
+</div>
+<div id="label">loading…</div>
+<span id="measure"></span>
+
+<script>
+'use strict';
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  CONFIG — everything you'd want to experiment with           ║
+// ╚══════════════════════════════════════════════════════════════╝
+const CONFIG = {
+
+  screen: { w: 720, h: 720 },
+  grid:   { cols: 2, rows: 2, labelHeight: 28 },
+
+  // How much of each cell the letter fills (0–1)
+  fontScale: 0.88,
+
+  // ── Animation ────────────────────────────────────────────────
+  anim: {
+    wdthPeriod:    4.0,           // seconds per full width cycle
+    wdthPhase:     0,
+    wghtPeriod:    7.0,           // seconds per full weight cycle
+    wghtPhase:     Math.PI * 0.6, // offset so wdth & wght peak at different times
+
+    // Per-letter phase offset in radians.
+    // 0 = all letters move together. Try 0.4 for independent drift.
+    letterStagger: 0,
+
+    revealDelay: 0.07,            // seconds between each letter appearing
+  },
+
+  // ── Colours ──────────────────────────────────────────────────
+  colors: {
+    bg:       '#000000',
+    fg:       '#ffffff',
+    labelFg:  '#333333',
+    bgInv:    '#ffffff',
+    fgInv:    '#000000',
+    labelInv: '#999999',
+  },
+
+  // ── Words ────────────────────────────────────────────────────
+  words: [
+    "TYPE","KERN","GRID","FLUX","BOLD","INK","LEAD","FONT","FORM","MARK",
+    "AXIS","BEAM","CROP","DASH","EDGE","FACE","GRIT","HEFT","JOIN","KNOT",
+    "LIFT","MESH","NODE","OPEN","PATH","QUAD","RULE","SLAB","THIN","UNIT",
+    "VOID","WAVE","ZERO","APEX","BARE","EMIT","FINE","GRIP","HARD","IRON",
+    "JUST","KEEN","LOOP","MAST","NEON","OVAL","PEAK","RIFT","SCAN","TILT",
+    "URGE","VANE","WARP","ZONE","ARCH","BLOC","CORD","DUCT","EXPO","FOLD",
+    "GLOW","HALO","IDEA","JOLT","LACE","MINT","NULL","ORBS","RING","SLOT",
+    "TRIM","VENT","WIRE","ZOOM","ALTO","BASS","CLEF","DEEP","ECHO","FLAT",
+    "GLUE","HOOK","OPUS","DRAW","BURN","CAST","CUTS","DEFT","DOTS","FUSE",
+    "GASH","LOOM","MASK","MOLD","NUMB","PEEL","POUR","PULL","PUSH","SEAM",
+  ],
+
+  // ── Fonts ────────────────────────────────────────────────────
+  // localFile: filename in /home/milo/fonts/ (downloaded by setup_fonts.sh)
+  // wdth: [min, max] — null if no width axis
+  // wght: [min, max] — required
+  // Using V2's already-downloaded variable font files
+  fonts: [
+    { name: "Roboto Flex",       localFile: "Roboto_Flex_variable.ttf",       wdth: [25,  151], wght: [100, 1000] },
+    { name: "Encode Sans",       localFile: "Encode_Sans_variable.ttf",       wdth: [75,  125], wght: [100,  900] },
+    { name: "Anybody",           localFile: "Anybody_variable.ttf",           wdth: [50,  150], wght: [100,  900] },
+    { name: "Crimson Pro",       localFile: "Crimson_Pro_variable.ttf",       wdth: null,       wght: [200,  900] },
+    { name: "Raleway",           localFile: "Raleway_variable.ttf",           wdth: null,       wght: [100,  900] },
+    { name: "Nunito",            localFile: "Nunito_variable.ttf",            wdth: null,       wght: [200, 1000] },
+    { name: "Manrope",           localFile: "Manrope_variable.ttf",           wdth: null,       wght: [200,  800] },
+    { name: "DM Sans",           localFile: "DM_Sans_variable.ttf",           wdth: null,       wght: [100,  900] },
+    { name: "Inter",             localFile: "Inter_variable.ttf",             wdth: null,       wght: [100,  900] },
+    { name: "Jost",              localFile: "Jost_variable.ttf",              wdth: null,       wght: [100,  900] },
+    { name: "Syne",              localFile: "Syne_variable.ttf",              wdth: null,       wght: [400,  800] },
+    { name: "Outfit",            localFile: "Outfit_variable.ttf",            wdth: null,       wght: [100,  900] },
+    { name: "Urbanist",          localFile: "Urbanist_variable.ttf",          wdth: null,       wght: [100,  900] },
+    { name: "Plus Jakarta Sans", localFile: "Plus_Jakarta_Sans_variable.ttf", wdth: null,       wght: [200,  800] },
+    { name: "Figtree",           localFile: "Figtree_variable.ttf",           wdth: null,       wght: [300,  900] },
+    { name: "Recursive",         localFile: "Recursive_variable.ttf",         wdth: null,       wght: [300, 1000] },
+  ],
+};
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Inject @font-face rules pointing to local TTF files         ║
+// ╚══════════════════════════════════════════════════════════════╝
+const FONT_DIR = 'file:///home/milo/fonts/';
+
+(function injectFontFaces() {
+  const css = CONFIG.fonts.map(f => {
+    return `@font-face {
+  font-family: "${f.name}";
+  src: url("${FONT_DIR}${f.localFile}");
+  font-weight: ${f.wght[0]} ${f.wght[1]};
+  ${f.wdth ? `font-stretch: ${f.wdth[0]}% ${f.wdth[1]}%;` : ''}
+  font-display: block;
+}`;
+  }).join('\n');
+
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+})();
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  State                                                       ║
+// ╚══════════════════════════════════════════════════════════════╝
+let fontIndex    = 0;
+let currentFont  = null;
+let animTime     = Math.random() * 100;
+let inverted     = false;
+let revealTimers = [];
+let loadedFonts  = new Set();
+let busy         = false;
+let wordCache    = {};   // fontIndex → {chars, upper} so back/forward shows same word
+
+const letterEls = [0,1,2,3].map(i => document.getElementById(`l${i}`));
+const labelEl   = document.getElementById('label');
+const measureEl = document.getElementById('measure');
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Helpers                                                     ║
+// ╚══════════════════════════════════════════════════════════════╝
+const sine01   = (t, period, phase = 0) => (Math.sin((t / period) * Math.PI * 2 + phase) + 1) / 2;
+const lerp     = (a, b, t) => a + (b - a) * t;
+const pickWord = () => CONFIG.words[Math.floor(Math.random() * CONFIG.words.length)];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Font loading                                                ║
+// ╚══════════════════════════════════════════════════════════════╝
+async function ensureFont(font) {
+  // Fonts are local @font-face files — return immediately and let the
+  // browser load them on demand. document.fonts.ready in setScene handles sync.
+  return true;
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Font sizing                                                 ║
+// ╚══════════════════════════════════════════════════════════════╝
+function measureChar(ch, fontName, px, fvs) {
+  measureEl.style.fontFamily            = `"${fontName}", monospace`;
+  measureEl.style.fontSize              = `${px}px`;
+  measureEl.style.fontVariationSettings = fvs;
+  measureEl.textContent = ch;
+  const r = measureEl.getBoundingClientRect();
+  return { w: r.width, h: r.height };
+}
+
+function fitFontSize(chars, font) {
+  const cellW = window.innerWidth  / CONFIG.grid.cols;
+  const cellH = (window.innerHeight - CONFIG.grid.labelHeight) / CONFIG.grid.rows;
+  const maxW  = cellW * CONFIG.fontScale;
+  const maxH  = cellH * CONFIG.fontScale;
+
+  // Measure at worst-case axes (max wdth + max wght = widest/tallest)
+  const fvs = [
+    font.wdth ? `'wdth' ${font.wdth[1]}` : null,
+    `'wght' ${font.wght[1]}`,
+  ].filter(Boolean).join(', ');
+
+  let lo = 10, hi = 900, best = 40;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const fits = chars.every(ch => {
+      const m = measureChar(ch, font.name, mid, fvs);
+      return m.w <= maxW && m.h <= maxH;
+    });
+    if (fits) { best = mid; lo = mid + 1; }
+    else       { hi  = mid - 1; }
+  }
+  return best;
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Scene                                                       ║
+// ╚══════════════════════════════════════════════════════════════╝
+async function setScene(direction = 1) {
+  if (busy) return;
+  busy = true;
+
+  revealTimers.forEach(clearTimeout);
+  revealTimers = [];
+
+  letterEls.forEach(el => { el.classList.remove('visible'); el.textContent = ''; });
+  labelEl.textContent = 'loading…';
+
+  // Find a working font
+  let font, ok;
+  for (let attempt = 0; attempt < CONFIG.fonts.length; attempt++) {
+    const i = ((fontIndex % CONFIG.fonts.length) + CONFIG.fonts.length) % CONFIG.fonts.length;
+    font = CONFIG.fonts[i];
+    ok   = await ensureFont(font);
+    if (ok) break;
+    fontIndex += direction;
+  }
+
+  if (!ok) { labelEl.textContent = 'no fonts loaded — run setup_fonts.sh'; busy = false; return; }
+
+  currentFont = font;
+
+  // Use cached word for this slot so back/forward shows the same content
+  if (!wordCache[fontIndex]) {
+    const word  = pickWord();
+    const upper = Math.random() < 0.5;
+    wordCache[fontIndex] = { chars: word.split('').map(c => upper ? c.toUpperCase() : c.toLowerCase()) };
+  }
+  const chars = wordCache[fontIndex].chars;
+
+  // Prime the measure element with this font so the browser starts loading it,
+  // then wait for all pending font loads to settle before measuring
+  measureEl.style.fontFamily = `"${font.name}", monospace`;
+  await Promise.race([
+    document.fonts.ready,
+    new Promise(r => setTimeout(r, 2000)),
+  ]);
+
+  const px = fitFontSize(chars, font);
+
+  chars.forEach((ch, i) => {
+    const el = letterEls[i];
+    el.textContent = ch;
+    el.style.fontFamily = `"${font.name}", monospace`;
+    el.style.fontSize   = `${px}px`;
+  });
+
+  const axisStr = font.wdth
+    ? `wdth ${font.wdth[0]}–${font.wdth[1]}  ·  wght ${font.wght[0]}–${font.wght[1]}`
+    : `wght ${font.wght[0]}–${font.wght[1]}`;
+  labelEl.textContent = `${font.name}  ·  ${axisStr}`;
+
+  shuffle([0,1,2,3]).forEach((idx, i) => {
+    revealTimers.push(
+      setTimeout(() => letterEls[idx].classList.add('visible'),
+                 i * CONFIG.anim.revealDelay * 1000)
+    );
+  });
+
+  animTime = Math.random() * 1000;
+  busy = false;
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Animation loop                                              ║
+// ╚══════════════════════════════════════════════════════════════╝
+let lastTs = null;
+
+function frame(ts) {
+  if (lastTs === null) lastTs = ts;
+  const dt  = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs    = ts;
+  animTime += dt;
+
+  if (currentFont) {
+    const font = currentFont;
+    const { wdthPeriod, wdthPhase, wghtPeriod, wghtPhase, letterStagger } = CONFIG.anim;
+
+    letterEls.forEach((el, i) => {
+      const offset = i * letterStagger;
+      const wdthT  = font.wdth ? sine01(animTime, wdthPeriod, wdthPhase + offset) : null;
+      const wghtT  = sine01(animTime, wghtPeriod, wghtPhase + offset);
+      const wdth   = wdthT !== null ? lerp(font.wdth[0], font.wdth[1], wdthT) : null;
+      const wght   = lerp(font.wght[0], font.wght[1], wghtT);
+
+      el.style.fontVariationSettings = [
+        wdth !== null ? `'wdth' ${wdth.toFixed(1)}` : null,
+        `'wght' ${wght.toFixed(0)}`,
+      ].filter(Boolean).join(', ');
+    });
+
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Input                                                       ║
+// ╚══════════════════════════════════════════════════════════════╝
+function next() { fontIndex++;                              setScene(1);  }
+function prev() { fontIndex = Math.max(0, fontIndex - 1);  setScene(-1); }
+
+function toggleInvert() {
+  inverted = !inverted;
+  const c = CONFIG.colors;
+  document.documentElement.style.setProperty('--bg',       inverted ? c.bgInv    : c.bg);
+  document.documentElement.style.setProperty('--fg',       inverted ? c.fgInv    : c.fg);
+  document.documentElement.style.setProperty('--label-fg', inverted ? c.labelInv : c.labelFg);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'd') next();
+  if (e.key === 'ArrowLeft'  || e.key === 'a') prev();
+  if (e.key === 'i')                           toggleInvert();
+  if (e.key === 'Escape')                      window.close();
+});
+
+let touch0 = null, touchT = null;
+const LONG_MS = 500;
+
+document.addEventListener('touchstart', e => {
+  touch0 = { x: e.touches[0].clientX };
+  touchT = Date.now();
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  if (!touch0) return;
+  const held = Date.now() - touchT;
+  if (held >= LONG_MS) {
+    toggleInvert();
+  } else {
+    e.changedTouches[0].clientX < window.innerWidth / 2 ? prev() : next();
+  }
+  touch0 = null;
+});
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Boot                                                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+requestAnimationFrame(frame);
+setScene(1);
+</script>
+</body>
+</html>
