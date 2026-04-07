@@ -34,16 +34,29 @@
       height: calc(100vh - var(--label-h));
     }
 
+    #grid.single-mode {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+
+    #grid.single-mode .cell:not(:first-child) {
+      display: none;
+    }
+
+    #grid.single-mode {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+
+    #grid.single-mode .cell:not(:first-child) {
+      display: none;
+    }
+
+
     .cell {
       display: flex;
       align-items: center;
       justify-content: center;
-      overflow: hidden;
-    }
-
-    @keyframes breathe {
-      0%, 100% { font-variation-settings: 'wght' 100; }
-      50%       { font-variation-settings: 'wght' 900; }
     }
 
     .letter {
@@ -52,15 +65,14 @@
       line-height: 1;
       white-space: nowrap;
       opacity: 0;
-      transform: translateY(6px);
-      transition: opacity 0.18s ease, transform 0.18s ease, color 0.35s ease;
+      transition: opacity 0.25s ease, color 0.35s ease;
       user-select: none;
+      transform-origin: center center;
+      will-change: transform, font-variation-settings;
     }
 
     .letter.visible {
       opacity: 1;
-      transform: translateY(0);
-      animation: breathe 2s ease-in-out infinite;
     }
 
     #label {
@@ -120,9 +132,11 @@ const CONFIG = {
 
     // Per-letter phase offset in radians.
     // 0 = all letters move together. Try 0.4 for independent drift.
-    letterStagger: 0,
+    letterStagger: 0.9,
 
     revealDelay: 0.07,            // seconds between each letter appearing
+
+
   },
 
   // ── Colours ──────────────────────────────────────────────────
@@ -205,7 +219,9 @@ let inverted     = false;
 let revealTimers = [];
 let loadedFonts  = new Set();
 let busy         = false;
-let wordCache    = {};   // fontIndex → {chars, upper} so back/forward shows same word
+let wordCache    = {};   // fontIndex → { chars, singleChar, singleDigit }
+let singleMode   = false;
+let numberMode   = false;
 
 const letterEls = [0,1,2,3].map(i => document.getElementById(`l${i}`));
 const labelEl   = document.getElementById('label');
@@ -299,43 +315,76 @@ async function setScene(direction = 1) {
   if (!ok) { labelEl.textContent = 'no fonts loaded — run setup_fonts.sh'; busy = false; return; }
 
   currentFont = font;
+  numberMode  = (fontIndex > 0 && fontIndex % 7 === 0);
+  singleMode  = !numberMode && (fontIndex > 0 && fontIndex % 5 === 0);
 
-  // Use cached word for this slot so back/forward shows the same content
+  // Word cache — also cache which letter to use in single mode
   if (!wordCache[fontIndex]) {
     const word  = pickWord();
     const upper = Math.random() < 0.5;
-    wordCache[fontIndex] = { chars: word.split('').map(c => upper ? c.toUpperCase() : c.toLowerCase()) };
+    const chars = word.split('').map(c => upper ? c.toUpperCase() : c.toLowerCase());
+    wordCache[fontIndex] = {
+      chars,
+      singleChar:  chars[Math.floor(Math.random() * chars.length)],
+      singleDigit: String(Math.floor(Math.random() * 10)),
+    };
   }
   const chars = wordCache[fontIndex].chars;
 
-  // Prime the measure element with this font so the browser starts loading it,
-  // then wait for all pending font loads to settle before measuring
+  // Toggle grid mode
+  const grid = document.getElementById('grid');
+  grid.classList.toggle('single-mode', singleMode || numberMode);
+
   measureEl.style.fontFamily = `"${font.name}", monospace`;
   await Promise.race([
     document.fonts.ready,
     new Promise(r => setTimeout(r, 2000)),
   ]);
 
-  const px = fitFontSize(chars, font);
+  if (singleMode || numberMode) {
+    // Single character (letter or digit) — fill the whole screen
+    const ch  = numberMode
+      ? wordCache[fontIndex].singleDigit
+      : wordCache[fontIndex].singleChar;
+    const maxW = window.innerWidth  * CONFIG.fontScale;
+    const maxH = (window.innerHeight - CONFIG.grid.labelHeight) * CONFIG.fontScale;
+    const fvs  = font.wdth ? `'wdth' ${font.wdth[1]}, 'wght' ${font.wght[1]}` : `'wght' ${font.wght[1]}`;
 
-  chars.forEach((ch, i) => {
-    const el = letterEls[i];
-    el.textContent = ch;
-    el.style.fontFamily = `"${font.name}", monospace`;
-    el.style.fontSize   = `${px}px`;
-  });
+    let lo = 10, hi = 1800, best = 40;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const m   = measureChar(ch, font.name, mid, fvs);
+      if (m.w <= maxW && m.h <= maxH) { best = mid; lo = mid + 1; }
+      else                             { hi  = mid - 1; }
+    }
+
+    letterEls[0].textContent = ch;
+    letterEls[0].style.fontFamily = `"${font.name}", monospace`;
+    letterEls[0].style.fontSize   = `${best}px`;
+    letterEls.slice(1).forEach(el => { el.textContent = ''; });
+
+    revealTimers.push(setTimeout(() => letterEls[0].classList.add('visible'), 80));
+
+  } else {
+    // Normal 2×2 grid
+    const px = fitFontSize(chars, font);
+    chars.forEach((ch, i) => {
+      letterEls[i].textContent = ch;
+      letterEls[i].style.fontFamily = `"${font.name}", monospace`;
+      letterEls[i].style.fontSize   = `${px}px`;
+    });
+    shuffle([0,1,2,3]).forEach((idx, i) => {
+      revealTimers.push(
+        setTimeout(() => letterEls[idx].classList.add('visible'),
+                   i * CONFIG.anim.revealDelay * 1000)
+      );
+    });
+  }
 
   const axisStr = font.wdth
     ? `wdth ${font.wdth[0]}–${font.wdth[1]}  ·  wght ${font.wght[0]}–${font.wght[1]}`
     : `wght ${font.wght[0]}–${font.wght[1]}`;
   labelEl.textContent = `${font.name}  ·  ${axisStr}`;
-
-  shuffle([0,1,2,3]).forEach((idx, i) => {
-    revealTimers.push(
-      setTimeout(() => letterEls[idx].classList.add('visible'),
-                 i * CONFIG.anim.revealDelay * 1000)
-    );
-  });
 
   animTime = Math.random() * 1000;
   busy = false;
@@ -358,15 +407,18 @@ function frame(ts) {
 
     letterEls.forEach((el, i) => {
       const offset = i * letterStagger;
-      const wdthT  = font.wdth ? sine01(animTime, wdthPeriod, wdthPhase + offset) : null;
-      const wghtT  = sine01(animTime, wghtPeriod, wghtPhase + offset);
-      const wdth   = wdthT !== null ? lerp(font.wdth[0], font.wdth[1], wdthT) : null;
-      const wght   = lerp(font.wght[0], font.wght[1], wghtT);
+
+      const wdthT = font.wdth ? sine01(animTime, wdthPeriod, wdthPhase + offset) : null;
+      const wghtT = sine01(animTime, wghtPeriod, wghtPhase + offset);
+      const wdth  = wdthT !== null ? lerp(font.wdth[0], font.wdth[1], wdthT) : null;
+      const wght  = lerp(font.wght[0], font.wght[1], wghtT);
 
       el.style.fontVariationSettings = [
         wdth !== null ? `'wdth' ${wdth.toFixed(1)}` : null,
         `'wght' ${wght.toFixed(0)}`,
       ].filter(Boolean).join(', ');
+
+      el.style.transform = '';
     });
 
   }
@@ -377,8 +429,8 @@ function frame(ts) {
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  Input                                                       ║
 // ╚══════════════════════════════════════════════════════════════╝
-function next() { fontIndex++;                              setScene(1);  }
-function prev() { fontIndex = Math.max(0, fontIndex - 1);  setScene(-1); }
+function next() { fontIndex++;                             setScene(1);  }
+function prev() { fontIndex = Math.max(0, fontIndex - 1); setScene(-1); }
 
 function toggleInvert() {
   inverted = !inverted;
