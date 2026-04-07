@@ -1,34 +1,34 @@
 #!/bin/bash
-# push.sh — configure Pi autostart, copy typotrix3.html, reload Chromium
+# push.sh — copy typotrix3.html to Pi and reload Chromium via CDP
 
 PI="milo@192.168.1.227"
+KEY="$HOME/.ssh/id_typotrix"
+SSH="ssh -i $KEY"
+SCP="scp -i $KEY"
 FILE="typotrix3.html"
 REMOTE_PATH="/home/milo/$FILE"
 
 echo "→ Pushing $FILE..."
-scp "$FILE" "$PI:$REMOTE_PATH"
+$SCP "$FILE" "$PI:$REMOTE_PATH"
 
-echo "→ Ensuring autostart..."
-ssh "$PI" bash << 'SETUP'
-# Boot to desktop with autologin
-sudo raspi-config nonint do_boot_behaviour B4 2>/dev/null
+echo "→ Ensuring boot setup..."
+$SSH "$PI" bash << 'SETUP'
+# .xinitrc — Chromium launches directly into X (no desktop)
+printf '%s\n' \
+  'sleep 3' \
+  'exec chromium --kiosk --incognito --no-first-run --noerrdialogs --disable-infobars --allow-file-access-from-files --remote-debugging-port=9222 file:///home/milo/typotrix3.html' \
+  > ~/.xinitrc
 
-# Create autostart entry
-mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/typotrix.desktop << 'EOF'
-[Desktop Entry]
-Type=Application
-Name=Typotrix
-Exec=bash -c "sleep 5 && chromium --kiosk --incognito --no-first-run --noerrdialogs --disable-infobars --allow-file-access-from-files --remote-debugging-port=9222 file:///home/milo/typotrix3.html"
-Hidden=false
-X-GNOME-Autostart-enabled=true
-EOF
-echo "✓ Autostart set"
+# .bash_profile — auto startx on tty1 console login
+if ! grep -q 'startx' ~/.bash_profile 2>/dev/null; then
+  printf '\nif [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then\n  exec startx -- -nocursor\nfi\n' >> ~/.bash_profile
+fi
+echo "✓ Boot setup verified"
 SETUP
 
 echo "→ Reloading..."
-ssh "$PI" "python3 - << 'PYEOF'
-import json, socket, base64, os, urllib.request, sys, subprocess
+$SSH "$PI" "python3 - << 'PYEOF'
+import json, socket, base64, os, urllib.request, subprocess
 
 def reload_via_cdp():
     tabs = json.loads(urllib.request.urlopen('http://localhost:9222/json', timeout=3).read())
@@ -57,11 +57,9 @@ try:
 except:
     print('Chromium not running — launching...')
     subprocess.Popen([
-        'chromium',
-        '--kiosk', '--no-first-run', '--noerrdialogs',
-        '--allow-file-access-from-files',
-        '--remote-debugging-port=9222',
-        'file:///home/milo/typotrix3.html'
+        'chromium', '--kiosk', '--incognito', '--no-first-run', '--noerrdialogs',
+        '--disable-infobars', '--allow-file-access-from-files',
+        '--remote-debugging-port=9222', 'file:///home/milo/typotrix3.html'
     ], env={**os.environ, 'DISPLAY': ':0'},
     stdout=open('/tmp/chromium.log','w'), stderr=subprocess.STDOUT)
     print('✓ Launched')
