@@ -1,5 +1,5 @@
 #!/bin/bash
-# push.sh — copy typotrix3.html to Pi and reload via Chrome DevTools Protocol
+# push.sh — configure Pi autostart, copy typotrix3.html, reload Chromium
 
 PI="milo@192.168.1.227"
 FILE="typotrix3.html"
@@ -7,6 +7,24 @@ REMOTE_PATH="/home/milo/$FILE"
 
 echo "→ Pushing $FILE..."
 scp "$FILE" "$PI:$REMOTE_PATH"
+
+echo "→ Ensuring autostart..."
+ssh "$PI" bash << 'SETUP'
+# Boot to desktop with autologin
+sudo raspi-config nonint do_boot_behaviour B4 2>/dev/null
+
+# Create autostart entry
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/typotrix.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Typotrix
+Exec=bash -c "sleep 5 && chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --allow-file-access-from-files --remote-debugging-port=9222 file:///home/milo/typotrix3.html"
+Hidden=false
+X-GNOME-Autostart-enabled=true
+EOF
+echo "✓ Autostart set"
+SETUP
 
 echo "→ Reloading..."
 ssh "$PI" "python3 - << 'PYEOF'
