@@ -25,21 +25,31 @@
       transition: background 0.35s ease;
     }
 
-    /* ── App container — slides horizontally between apps ──── */
+    /* ── App container — panels stack absolutely, each slides independently ── */
     #app-container {
-      display: flex;
-      width: 200vw;
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
       height: 100vh;
       transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
       will-change: transform;
     }
 
-    .app {
-      width: 100vw;
-      height: 100vh;
-      flex-shrink: 0;
-      position: relative;
+    /* Clock is always the inverse of Typotrix */
+    #app-clock {
+      background: var(--bg);
+      filter: invert(1);
     }
+
+
 
     /* ── Shared grid layout ──────────────────────────────────── */
     .letter-grid {
@@ -133,6 +143,7 @@
     <div id="clock-label" class="app-label">--:--:--</div>
   </div>
 
+
 </div>
 
 <span id="measure"></span>
@@ -173,6 +184,13 @@ const CONFIG = {
     bgInv:    '#ffffff',
     fgInv:    '#000000',
     labelInv: '#999999',
+  },
+
+  // ── Location (for weather) ───────────────────────────────────
+  location: {
+    lat:  51.5,     // London — change to your lat/lon
+    lon:  -0.1,
+    name: 'London',
   },
 
   // ── Touch ────────────────────────────────────────────────────
@@ -256,7 +274,7 @@ let numberMode   = false;
 // App navigation
 let currentApp      = 0;
 const NUM_APPS      = 2;
-const appContainer  = document.getElementById('app-container');
+const appEls        = ['app-typotrix','app-clock'].map(id => document.getElementById(id));
 
 const letterEls  = [0,1,2,3].map(i => document.getElementById(`l${i}`));
 const clockEls   = [0,1,2,3].map(i => document.getElementById(`c${i}`));
@@ -443,14 +461,29 @@ function updateClock() {
 
 setInterval(updateClock, 1000);
 
+
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  App switching                                               ║
 // ╚══════════════════════════════════════════════════════════════╝
 function switchApp(dir) {
-  currentApp = Math.max(0, Math.min(NUM_APPS - 1, currentApp + dir));
-  appContainer.style.transform = `translateX(${-currentApp * 100}vw)`;
-  if (currentApp === 1) updateClock(); // refresh clock immediately on switch
+  const next    = (currentApp + dir + NUM_APPS) % NUM_APPS;
+  const current = appEls[currentApp];
+  const nextEl  = appEls[next];
+
+  // Position next panel on the incoming side instantly (no transition)
+  nextEl.style.transition = 'none';
+  nextEl.style.transform  = `translateX(${dir * 100}vw)`;
+  nextEl.getBoundingClientRect(); // force reflow
+
+  // Slide both panels together in the swipe direction
+  nextEl.style.transition = '';
+  nextEl.style.transform  = 'translateX(0)';
+  current.style.transform = `translateX(${-dir * 100}vw)`;
+
+  currentApp = next;
+  if (currentApp === 1) updateClock();
 }
+
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  Animation loop                                              ║
@@ -465,21 +498,14 @@ function frame(ts) {
 
   if (currentFont) {
     const font = currentFont;
-    const { wdthPeriod, wdthPhase, wghtPeriod, wghtPhase, letterStagger } = CONFIG.anim;
+    const { wghtPeriod, wghtPhase, letterStagger } = CONFIG.anim;
 
-    // Animate all 8 elements — 4 Typotrix letters + 4 clock digits
+    // All elements — wght only
     [...letterEls, ...clockEls].forEach((el, i) => {
       const offset = i * letterStagger;
-
-      const wdthT = font.wdth ? sine01(animTime, wdthPeriod, wdthPhase + offset) : null;
-      const wghtT = sine01(animTime, wghtPeriod, wghtPhase + offset);
-      const wdth  = wdthT !== null ? lerp(font.wdth[0], font.wdth[1], wdthT) : null;
-      const wght  = lerp(font.wght[0], font.wght[1], wghtT);
-
-      el.style.fontVariationSettings = [
-        wdth !== null ? `'wdth' ${wdth.toFixed(1)}` : null,
-        `'wght' ${wght.toFixed(0)}`,
-      ].filter(Boolean).join(', ');
+      const wghtT  = sine01(animTime, wghtPeriod, wghtPhase + offset);
+      const wght   = lerp(font.wght[0], font.wght[1], wghtT);
+      el.style.fontVariationSettings = `'wght' ${wght.toFixed(0)}`;
     });
   }
 
@@ -558,6 +584,12 @@ document.addEventListener('touchend', e => {
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  Boot                                                        ║
 // ╚══════════════════════════════════════════════════════════════╝
+// Park all panels off-screen except the first
+appEls.forEach((el, i) => {
+  el.style.transition = 'none';
+  el.style.transform  = i === 0 ? 'translateX(0)' : 'translateX(100vw)';
+});
+
 requestAnimationFrame(frame);
 setScene(1);
 </script>
