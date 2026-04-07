@@ -469,16 +469,18 @@ function switchApp(dir) {
   const next    = (currentApp + dir + NUM_APPS) % NUM_APPS;
   const current = appEls[currentApp];
   const nextEl  = appEls[next];
+  const W       = window.innerWidth;
 
-  // Position next panel on the incoming side instantly (no transition)
+  // Snap next panel to the incoming side with no transition
   nextEl.style.transition = 'none';
-  nextEl.style.transform  = `translateX(${dir * 100}vw)`;
+  nextEl.style.transform  = `translateX(${dir * W}px)`;
   nextEl.getBoundingClientRect(); // force reflow
 
-  // Slide both panels together in the swipe direction
-  nextEl.style.transition = '';
-  nextEl.style.transform  = 'translateX(0)';
-  current.style.transform = `translateX(${-dir * 100}vw)`;
+  // Re-enable transitions on both and slide together
+  nextEl.style.transition  = '';
+  current.style.transition = '';
+  nextEl.style.transform   = 'translateX(0)';
+  current.style.transform  = `translateX(${-dir * W}px)`;
 
   currentApp = next;
   if (currentApp === 1) updateClock();
@@ -587,7 +589,7 @@ document.addEventListener('touchend', e => {
 // Park all panels off-screen except the first
 appEls.forEach((el, i) => {
   el.style.transition = 'none';
-  el.style.transform  = i === 0 ? 'translateX(0)' : 'translateX(100vw)';
+  el.style.transform  = i === 0 ? 'translateX(0)' : `translateX(${window.innerWidth}px)`;
 });
 
 requestAnimationFrame(frame);
