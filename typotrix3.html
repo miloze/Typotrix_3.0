@@ -535,50 +535,39 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape')                      window.close();
 });
 
-// Touch — press is a press, swipe is a swipe, no in-between
-// touchmove sets isSwiping the moment the finger travels; touchend reads it.
-let touch0    = null;
-let touchT    = null;
-let isSwiping = false;
-let swipeDx   = 0;
-let swipeDy   = 0;
-const { longPressMs } = CONFIG.touch;
+// Touch — swipe threshold at touchend (reliable on Pi touchscreen)
+// Horizontal drag > swipeThreshold → switch app
+// Short tap → cycle fonts / long press → invert
+let touch0 = null;
+let touchT = null;
+const { swipeThreshold, longPressMs } = CONFIG.touch;
 
 document.addEventListener('touchstart', e => {
-  touch0    = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  touchT    = Date.now();
-  isSwiping = false;
-  swipeDx   = 0;
-  swipeDy   = 0;
-}, { passive: true });
-
-document.addEventListener('touchmove', e => {
-  if (!touch0) return;
-  swipeDx   = e.touches[0].clientX - touch0.x;
-  swipeDy   = e.touches[0].clientY - touch0.y;
-  isSwiping = true;
+  touch0 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  touchT = Date.now();
 }, { passive: true });
 
 document.addEventListener('touchend', e => {
   if (!touch0) return;
   const held = Date.now() - touchT;
+  const dx   = e.changedTouches[0].clientX - touch0.x;
+  const dy   = e.changedTouches[0].clientY - touch0.y;
+  const adx  = Math.abs(dx);
+  const ady  = Math.abs(dy);
 
-  if (isSwiping) {
-    // Swipe — direction decided by dominant axis
-    if (Math.abs(swipeDx) >= Math.abs(swipeDy)) {
-      // Horizontal swipe — switch app
-      switchApp(swipeDx < 0 ? 1 : -1);
-    }
-    // Vertical swipe — reserved for future use
+  if (adx > swipeThreshold && adx > ady) {
+    // Horizontal swipe — switch app
+    switchApp(dx < 0 ? 1 : -1);
   } else if (held >= longPressMs) {
     // Long press — invert
     toggleInvert();
-  } else {
-    // Clean press — font navigation (Typotrix only)
+  } else if (ady <= swipeThreshold) {
+    // Short tap — font navigation (Typotrix only)
     if (currentApp === 0) {
       touch0.x < window.innerWidth / 2 ? prev() : next();
     }
   }
+  // Vertical swipe — reserved for future use
 
   touch0 = null;
 });
